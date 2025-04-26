@@ -335,11 +335,11 @@ std::vector<std::pair<std::string, double>> find_matching_files(const std::strin
     return results;
 }
 
-void update_search_results(std::string &fs_browser_search_query, std::vector<std::filesystem::path> &searchable_files,
-                           FileBrowser &fb,
-                           std::vector<int> &doids_for_textboxes_for_active_directory_for_later_removal, UI &fs_browser,
-                           TemporalBinarySignal &search_results_changed_signal, int &selected_file_doid,
-                           std::vector<std::string> &currently_matched_files) {
+void update_graphical_search_results(std::string &fs_browser_search_query,
+                                     std::vector<std::filesystem::path> &searchable_files, FileBrowser &fb,
+                                     std::vector<int> &doids_for_textboxes_for_active_directory_for_later_removal,
+                                     UI &fs_browser, TemporalBinarySignal &search_results_changed_signal,
+                                     int &selected_file_doid, std::vector<std::string> &currently_matched_files) {
     // Find matching files
     int file_limit = 10;
     std::vector<std::pair<std::string, double>> matching_files =
@@ -384,8 +384,24 @@ void update_search_results(std::string &fs_browser_search_query, std::vector<std
     }
 }
 
-void switch_files(Viewport &viewport, LSPClient &lsp_client, const std::string &file_to_open,
-                  bool store_movements_to_history) {
+// this is here because I'm removing the dependency on lsp client
+std::string root_project_directory = "";
+std::string get_full_path(const std::string &file_path) {
+#if defined(_WIN32) || defined(_WIN64)
+    if (file_path.empty() || file_path[0] != 'C') {
+        return root_project_directory + file_path;
+    }
+#else
+    if (file_path.empty() || file_path[0] != '/') {
+        return root_project_directory + file_path;
+    }
+#endif
+    return file_path;
+}
+
+// void switch_files(Viewport &viewport, LSPClient &lsp_client, const std::string &file_to_open,
+//                   bool store_movements_to_history) {
+void switch_files(Viewport &viewport, const std::string &file_to_open, bool store_movements_to_history) {
 
     bool found_active_file_buffer = false;
     for (auto active_file_buffer : viewport.active_file_buffers) {
@@ -400,7 +416,8 @@ void switch_files(Viewport &viewport, LSPClient &lsp_client, const std::string &
     if (not found_active_file_buffer) {
         std::cout << "didn't find matching buffer creating new buffer for: " << file_to_open << std::endl;
         auto ltb = std::make_shared<LineTextBuffer>();
-        ltb->load_file(lsp_client.get_full_path(file_to_open));
+        // ltb->load_file(lsp_client.get_full_path(file_to_open));
+        ltb->load_file(get_full_path(file_to_open));
         // lsp_client.make_did_open_request(file_to_open);
         viewport.switch_buffers_and_adjust_viewport_position(ltb, store_movements_to_history);
     }
@@ -427,79 +444,617 @@ void go_to_definition(JSON lsp_response, Viewport &viewport, LSPClient &lsp_clie
         int line = location["range"]["start"]["line"].get<int>();
         int col = location["range"]["start"]["character"].get<int>();
 
-        switch_files(viewport, lsp_client, file_to_open, true);
+        switch_files(viewport, file_to_open, true);
         viewport.set_active_buffer_line_col_under_cursor(line, col);
     } catch (const std::exception &e) {
         std::cerr << "LSP go_to_definition: Exception parsing response: " << e.what() << std::endl;
     }
 }
 
-void run_key_logic(InputState &input_state, Viewport &viewport, int &line_where_selection_mode_started,
+#include <unordered_map>
+#include <type_traits>
+
+// clang-format off
+enum class InputKey {
+    a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z,
+
+    SPACE,
+    GRAVE_ACCENT,
+    TILDE,
+
+    ONE, TWO, THREE, FOUR, FIVE, SIX, SEVEN, EIGHT, NINE, ZERO,
+    MINUS, EQUAL,
+
+    EXCLAMATION_POINT, AT_SIGN, NUMBER_SIGN, DOLLAR_SIGN, PERCENT_SIGN,
+    CARET, AMPERSAND, ASTERISK, LEFT_PARENTHESIS, RIGHT_PARENTHESIS,
+    UNDERSCORE, PLUS,
+
+    LEFT_SQUARE_BRACKET, RIGHT_SQUARE_BRACKET,
+    LEFT_CURLY_BRACKET, RIGHT_CURLY_BRACKET,
+
+    COMMA, PERIOD, LESS_THAN, GREATER_THAN,
+
+    CAPS_LOCK, ESCAPE, ENTER, TAB, BACKSPACE, INSERT, DELETE,
+
+    RIGHT, LEFT, UP, DOWN,
+
+    SLASH, QUESTION_MARK, BACKSLASH, PIPE,
+    COLON, SEMICOLON, SINGLE_QUOTE, DOUBLE_QUOTE,
+
+    LEFT_SHIFT, RIGHT_SHIFT,
+    LEFT_CONTROL, RIGHT_CONTROL,
+    LEFT_ALT, RIGHT_ALT,
+    LEFT_SUPER, RIGHT_SUPER,
+
+    FUNCTION_KEY, MENU_KEY,
+
+    LEFT_MOUSE_BUTTON, RIGHT_MOUSE_BUTTON, MIDDLE_MOUSE_BUTTON,
+    SCROLL_UP, SCROLL_DOWN,
+
+    DUMMY
+};
+
+std::string input_key_to_string(InputKey key, bool shift_pressed) {
+    switch (key) {
+        case InputKey::a: return shift_pressed ? "A" : "a";
+        case InputKey::b: return shift_pressed ? "B" : "b";
+        case InputKey::c: return shift_pressed ? "C" : "c";
+        case InputKey::d: return shift_pressed ? "D" : "d";
+        case InputKey::e: return shift_pressed ? "E" : "e";
+        case InputKey::f: return shift_pressed ? "F" : "f";
+        case InputKey::g: return shift_pressed ? "G" : "g";
+        case InputKey::h: return shift_pressed ? "H" : "h";
+        case InputKey::i: return shift_pressed ? "I" : "i";
+        case InputKey::j: return shift_pressed ? "J" : "j";
+        case InputKey::k: return shift_pressed ? "K" : "k";
+        case InputKey::l: return shift_pressed ? "L" : "l";
+        case InputKey::m: return shift_pressed ? "M" : "m";
+        case InputKey::n: return shift_pressed ? "N" : "n";
+        case InputKey::o: return shift_pressed ? "O" : "o";
+        case InputKey::p: return shift_pressed ? "P" : "p";
+        case InputKey::q: return shift_pressed ? "Q" : "q";
+        case InputKey::r: return shift_pressed ? "R" : "r";
+        case InputKey::s: return shift_pressed ? "S" : "s";
+        case InputKey::t: return shift_pressed ? "T" : "t";
+        case InputKey::u: return shift_pressed ? "U" : "u";
+        case InputKey::v: return shift_pressed ? "V" : "v";
+        case InputKey::w: return shift_pressed ? "W" : "w";
+        case InputKey::x: return shift_pressed ? "X" : "x";
+        case InputKey::y: return shift_pressed ? "Y" : "y";
+        case InputKey::z: return shift_pressed ? "Z" : "z";
+
+        case InputKey::ZERO: return shift_pressed ? ")" : "0";
+        case InputKey::ONE: return shift_pressed ? "!" : "1";
+        case InputKey::TWO: return shift_pressed ? "@" : "2";
+        case InputKey::THREE: return shift_pressed ? "#" : "3";
+        case InputKey::FOUR: return shift_pressed ? "$" : "4";
+        case InputKey::FIVE: return shift_pressed ? "%" : "5";
+        case InputKey::SIX: return shift_pressed ? "^" : "6";
+        case InputKey::SEVEN: return shift_pressed ? "&" : "7";
+        case InputKey::EIGHT: return shift_pressed ? "*" : "8";
+        case InputKey::NINE: return shift_pressed ? "(" : "9";
+
+        case InputKey::SPACE: return " ";
+        case InputKey::ENTER: return "\n";
+        case InputKey::TAB: return "\t";
+        case InputKey::COMMA: return shift_pressed ? "<" : ",";
+        case InputKey::PERIOD: return shift_pressed ? ">" : ".";
+        case InputKey::SLASH: return shift_pressed ? "?" : "/";
+        case InputKey::SEMICOLON: return shift_pressed ? ":" : ";";
+        case InputKey::SINGLE_QUOTE: return shift_pressed ? "\"" : "'";
+        case InputKey::LEFT_SQUARE_BRACKET: return shift_pressed ? "{" : "[";
+        case InputKey::RIGHT_SQUARE_BRACKET: return shift_pressed ? "}" : "]";
+        case InputKey::MINUS: return shift_pressed ? "_" : "-";
+        case InputKey::EQUAL: return shift_pressed ? "+" : "=";
+        case InputKey::BACKSLASH: return shift_pressed ? "|" : "\\";
+
+        default: return ""; // ignore unknown or non-character keys
+    }
+}
+
+// clang-format on
+
+struct InputKeyState {
+
+    std::unordered_map<InputKey, bool> input_key_to_is_pressed;
+    std::unordered_map<InputKey, bool> input_key_to_just_pressed;
+
+    InputKeyState() {
+        for (int i = 0; i < static_cast<int>(InputKey::DUMMY); ++i) {
+            input_key_to_is_pressed[static_cast<InputKey>(i)] = false;
+        }
+
+        for (int i = 0; i < static_cast<int>(InputKey::DUMMY); ++i) {
+            input_key_to_just_pressed[static_cast<InputKey>(i)] = false;
+        }
+    }
+
+    bool is_pressed(const InputKey &input_key) const { return input_key_to_is_pressed.at(input_key); }
+    bool is_just_pressed(const InputKey &input_key) const { return input_key_to_just_pressed.at(input_key); }
+
+    // NOTE: this doesn't make sense when more than one key is pressed this tick, I'm just going to make the bad
+    // assumption that that will not really occur too often, if it does then we'll have to fix this
+    std::vector<std::string> get_keys_just_pressed_this_tick() {
+        std::vector<std::string> result;
+        bool shift_pressed = is_pressed(InputKey::LEFT_SHIFT) || is_pressed(InputKey::RIGHT_SHIFT);
+
+        for (const auto &[key, just_pressed] : input_key_to_just_pressed) {
+            if (!just_pressed)
+                continue;
+
+            // Skip modifier keys
+            switch (key) {
+            case InputKey::LEFT_SHIFT:
+            case InputKey::RIGHT_SHIFT:
+            case InputKey::LEFT_CONTROL:
+            case InputKey::RIGHT_CONTROL:
+            case InputKey::LEFT_ALT:
+            case InputKey::RIGHT_ALT:
+            case InputKey::LEFT_SUPER:
+            case InputKey::RIGHT_SUPER:
+                continue;
+            default:
+                break;
+            }
+
+            std::string str = input_key_to_string(key, shift_pressed);
+            if (!str.empty())
+                result.push_back(str);
+        }
+
+        return result;
+    }
+};
+
+void delete_at_current_cursor_position_logic(ModalEditor &modal_editor, Viewport &viewport,
+                                             int &line_where_selection_mode_started,
+                                             int &col_where_selection_mode_started) {
+    if (modal_editor.current_mode == MOVE_AND_EDIT) {
+        auto td = viewport.delete_character_at_active_position();
+        if (td != EMPTY_TEXT_DIFF) {
+            // lsp_client.make_did_change_request(viewport.buffer->current_file_path, td);
+        }
+    }
+
+    if (modal_editor.current_mode == VISUAL_SELECT) {
+        // TODO: make change request
+        auto tms = viewport.buffer->delete_bounding_box(
+            line_where_selection_mode_started, col_where_selection_mode_started,
+            viewport.active_buffer_line_under_cursor, viewport.active_buffer_col_under_cursor);
+
+        for (const auto &tm : tms) {
+            if (tm != EMPTY_TEXT_DIFF) {
+                // lsp_client.make_did_change_request(viewport.buffer->current_file_path, tm);
+            }
+        }
+
+        viewport.set_active_buffer_line_col_under_cursor(line_where_selection_mode_started,
+                                                         col_where_selection_mode_started);
+
+        modal_editor.current_mode = MOVE_AND_EDIT;
+        modal_editor.mode_change_signal.toggle_state();
+    }
+}
+
+void paste_at_cursor_position_logic(ModalEditor &modal_editor, Viewport &viewport, const std::smatch &m) {
+    if (modal_editor.current_mode == MOVE_AND_EDIT) {
+        if (m.str(0) == "P") {
+            // Uppercase 'P' - insert content from the clipboard
+            // NOTE: that this needs to be replaced somehow
+            // const char *clipboard_content = glfwGetClipboardString(window.glfw_window);
+            // if (clipboard_content) {
+            //     // TODO: make change request
+            //     viewport.insert_string_at_cursor(clipboard_content);
+            // }
+        } else if (m.str(0) == "p") {
+            // Lowercase 'p' - insert the last deleted content
+            // TODO: make change request
+            viewport.insert_string_at_cursor(viewport.buffer->get_last_deleted_content());
+        }
+    }
+}
+
+void start_visual_selection(ModalEditor &modal_editor, Viewport &viewport, int &line_where_selection_mode_started,
+                            int &col_where_selection_mode_started) {
+    if (modal_editor.current_mode == MOVE_AND_EDIT) {
+        modal_editor.current_mode = VISUAL_SELECT;
+        modal_editor.mode_change_signal.toggle_state();
+        line_where_selection_mode_started = viewport.active_buffer_line_under_cursor;
+        col_where_selection_mode_started = viewport.active_buffer_col_under_cursor;
+    }
+}
+
+void enter_insert_mode(ModalEditor &modal_editor, Viewport &viewport, TemporalBinarySignal &insert_mode_signal,
+                       const InputKeyState &iks) {
+    // left control pressed then don't do this because of ctrl-i command
+    if (not iks.is_pressed(InputKey::LEFT_CONTROL) and modal_editor.current_mode == MOVE_AND_EDIT) {
+        modal_editor.current_mode = INSERT;
+        insert_mode_signal.toggle_state();
+        modal_editor.mode_change_signal.toggle_state();
+    }
+}
+
+void enter_insert_mode_after_cursor_position(ModalEditor &modal_editor, Viewport &viewport,
+                                             TemporalBinarySignal &insert_mode_signal) {
+    if (modal_editor.current_mode == MOVE_AND_EDIT) {
+        viewport.scroll_right();
+        modal_editor.current_mode = INSERT;
+        insert_mode_signal.toggle_state();
+        modal_editor.mode_change_signal.toggle_state();
+    }
+}
+
+void enter_insert_mode_at_end_of_line(ModalEditor &modal_editor, Viewport &viewport,
+                                      TemporalBinarySignal &insert_mode_signal) {
+    if (modal_editor.current_mode == MOVE_AND_EDIT) {
+        viewport.move_cursor_to_end_of_line();
+        modal_editor.current_mode = INSERT;
+        insert_mode_signal.toggle_state();
+        modal_editor.mode_change_signal.toggle_state();
+    }
+}
+
+void enter_insert_mode_in_front_of_first_non_whitespace_character_on_active_line(
+    ModalEditor &modal_editor, Viewport &viewport, TemporalBinarySignal &insert_mode_signal) {
+    if (modal_editor.current_mode == MOVE_AND_EDIT) {
+        int ciofnwc = viewport.buffer->find_col_idx_of_first_non_whitespace_character_in_line(
+            viewport.active_buffer_line_under_cursor);
+        viewport.set_active_buffer_col_under_cursor(ciofnwc);
+        modal_editor.current_mode = INSERT;
+        insert_mode_signal.toggle_state();
+        modal_editor.mode_change_signal.toggle_state();
+    }
+}
+
+void move_cursor_to_first_non_whitespace_character_on_active_line(ModalEditor &modal_editor, Viewport &viewport) {
+    if (modal_editor.current_mode == MOVE_AND_EDIT) {
+        int ciofnwc = viewport.buffer->find_col_idx_of_first_non_whitespace_character_in_line(
+            viewport.active_buffer_line_under_cursor);
+        viewport.set_active_buffer_col_under_cursor(ciofnwc);
+    }
+}
+
+void handle_hjkl_with_number_modifier(ModalEditor &modal_editor, Viewport &viewport, const std::smatch &m) {
+    if (modal_editor.current_mode == MOVE_AND_EDIT or modal_editor.current_mode == VISUAL_SELECT) {
+        int count = m[1].str().empty() ? 1 : std::stoi(m[1].str());
+        char direction = m[2].str()[0];
+
+        int line_delta = 0, col_delta = 0;
+        switch (direction) {
+        case 'j':
+            if (viewport.buffer->line_count() > viewport.active_buffer_line_under_cursor + 1) {
+                line_delta = count;
+            }
+            break; // Scroll down
+        case 'k':
+            if (viewport.active_buffer_line_under_cursor > 0) {
+                line_delta = -count;
+            }
+            break; // Scroll up
+        case 'h':
+            if (viewport.active_buffer_col_under_cursor > 0) {
+                col_delta = -count;
+            }
+            break; // Scroll left
+        case 'l':
+            const std::string &line = viewport.buffer->get_line(viewport.active_buffer_line_under_cursor);
+
+            // TODO: this is bad because it stops me from being able to scroll rightware
+            // if I want to on a blank line which is a real use case because sometimes
+            // I want to be able to scroll right without caring about where I am in the file
+            // note that this behavior is different than vim and thats ok
+            /*if (line.size() > viewport.active_buffer_col_under_cursor) {*/
+            /*    col_delta = count;*/
+            /*}*/
+
+            col_delta = count;
+
+            break; // Scroll right
+        }
+
+        std::cout << "line delta: " << line_delta << ", col delta: " << col_delta << std::endl;
+        viewport.scroll(line_delta, col_delta);
+    }
+}
+
+void go_to_specific_line_number(Viewport &viewport, const std::smatch &m) {
+    std::string digits = m[1].str();
+
+    if (digits.empty()) {
+        int last_line_index = viewport.buffer->line_count() - 1;
+        viewport.set_active_buffer_line_under_cursor(last_line_index);
+    } else {
+        int number = std::stoi(digits);
+        viewport.set_active_buffer_line_under_cursor(number - 1);
+    }
+}
+
+void change_or_delete_till_or_find_to_character(ModalEditor &modal_editor, Viewport &viewport, const std::smatch &m) {
+
+    std::string action = m[1].str(); // 'c' (change) or 'd' (delete), optional
+    std::string motion = m[2].str(); // 'f', 'F', 't', or 'T'
+    char character = m[3].str()[0];  // The character to search for
+
+    int col_idx = -1;
+
+    // Handle motion commands
+    if (motion == "f") {
+        col_idx = viewport.buffer->find_rightward_index(viewport.active_buffer_line_under_cursor,
+                                                        viewport.active_buffer_col_under_cursor, character);
+    } else if (motion == "F") {
+        col_idx = viewport.buffer->find_leftward_index(viewport.active_buffer_line_under_cursor,
+                                                       viewport.active_buffer_col_under_cursor, character);
+    } else if (motion == "t") {
+        col_idx = viewport.buffer->find_rightward_index_before(viewport.active_buffer_line_under_cursor,
+                                                               viewport.active_buffer_col_under_cursor, character);
+    } else if (motion == "T") {
+        col_idx = viewport.buffer->find_leftward_index_before(viewport.active_buffer_line_under_cursor,
+                                                              viewport.active_buffer_col_under_cursor, character);
+    }
+
+    // Apply action based on motion result
+    if (col_idx != -1) {
+        if (!action.empty()) {
+            // If action is 'c' or 'd', handle deletion and mode change
+            viewport.buffer->delete_bounding_box(viewport.active_buffer_line_under_cursor,
+                                                 viewport.active_buffer_col_under_cursor,
+                                                 viewport.active_buffer_line_under_cursor, col_idx);
+            if (action == "c") {
+                modal_editor.current_mode = INSERT;
+                modal_editor.mode_change_signal.toggle_state();
+            }
+        } else {
+            viewport.set_active_buffer_col_under_cursor(col_idx);
+        }
+    } else {
+        std::cout << "Character '" << character << "' not found for motion '" << motion << "'.\n";
+    }
+}
+
+void change_or_delete_using_word_motion(ModalEditor &modal_editor, Viewport &viewport,
+                                        TemporalBinarySignal &insert_mode_signal, const std::smatch &m) {
+    std::string command = m[1].str();
+    std::string motion = m[2].str();
+
+    // If no command is provided (meaning [cd] is missing), run these default motions
+    if (command.empty()) {
+        if (motion == "w") {
+            viewport.move_cursor_forward_by_word();
+        } else if (motion == "e") {
+            viewport.move_cursor_forward_until_end_of_word();
+        } else if (motion == "b") {
+            viewport.move_cursor_backward_by_word();
+        } else if (motion == "B") {
+            viewport.move_cursor_backward_until_start_of_word();
+        }
+        return;
+    }
+
+    // otherwise run the deletion stuff
+    int col_idx = -1;
+    if (motion == "w") {
+        // minus one is used here to mimic default vim behavior and not to delet the first character of the next
+        // word
+        col_idx = viewport.buffer->find_forward_by_word_index(viewport.active_buffer_line_under_cursor,
+                                                              viewport.active_buffer_col_under_cursor) -
+                  1;
+    } else if (motion == "e") {
+        col_idx = viewport.buffer->find_forward_to_end_of_word(viewport.active_buffer_line_under_cursor,
+                                                               viewport.active_buffer_col_under_cursor);
+    } else if (motion == "b") {
+        col_idx = viewport.buffer->find_backward_to_start_of_word(viewport.active_buffer_line_under_cursor,
+                                                                  viewport.active_buffer_col_under_cursor);
+    } else if (motion == "B") {
+        col_idx = viewport.buffer->find_backward_by_word_index(viewport.active_buffer_line_under_cursor,
+                                                               viewport.active_buffer_col_under_cursor);
+    }
+
+    // Apply action based on motion result
+    if (col_idx != -1) {
+        viewport.buffer->delete_bounding_box(viewport.active_buffer_line_under_cursor,
+                                             viewport.active_buffer_col_under_cursor,
+                                             viewport.active_buffer_line_under_cursor, col_idx);
+        if (command == "c") {
+            modal_editor.current_mode = INSERT;
+            insert_mode_signal.toggle_state();
+            modal_editor.mode_change_signal.toggle_state();
+        }
+    }
+}
+
+void change_or_delete_inside_or_around_brackets(Viewport &viewport, const std::smatch &m) {
+    std::string command = m[1].str();
+    std::string inside_or_around = m[2].str();
+    std::string bracket_type = m[3].str();
+
+    int left_match_col = -1;
+    int right_match_col = -1;
+
+    if (bracket_type == "b") {
+        left_match_col = viewport.buffer->find_column_index_of_previous_left_bracket(
+            viewport.active_buffer_line_under_cursor, viewport.active_buffer_col_under_cursor);
+        right_match_col = viewport.buffer->find_column_index_of_next_right_bracket(
+            viewport.active_buffer_line_under_cursor, viewport.active_buffer_col_under_cursor);
+    }
+
+    if (bracket_type == "B") {
+        left_match_col = viewport.buffer->find_column_index_of_character_leftward(
+            viewport.active_buffer_line_under_cursor, viewport.active_buffer_col_under_cursor, '{');
+        right_match_col = viewport.buffer->find_column_index_of_next_character(
+            viewport.active_buffer_line_under_cursor, viewport.active_buffer_col_under_cursor, '}');
+    }
+
+    if (left_match_col == -1 or right_match_col == -1) {
+        return;
+    }
+
+    if (inside_or_around == "i") {
+        left_match_col++;
+        right_match_col--;
+    }
+
+    viewport.buffer->delete_bounding_box(viewport.active_buffer_line_under_cursor, right_match_col,
+                                         viewport.active_buffer_line_under_cursor, left_match_col);
+    viewport.set_active_buffer_line_col_under_cursor(viewport.active_buffer_line_under_cursor, left_match_col);
+}
+
+void open_new_line_below_or_above_current_line(ModalEditor &modal_editor, Viewport &viewport,
+                                               TemporalBinarySignal &insert_mode_signal, const InputKeyState &iks,
+                                               const std::smatch &m) {
+    // left control pressed then don't do this because of ctrl-o command
+    if (not iks.is_pressed(InputKey::LEFT_CONTROL) and modal_editor.current_mode == MOVE_AND_EDIT) {
+        if (m.str() == "O") {
+            // Create a new line above the cursor and scroll up
+            auto td = viewport.create_new_line_above_cursor_and_scroll_up();
+            if (td != EMPTY_TEXT_DIFF) {
+                // lsp_client.make_did_change_request(viewport.buffer->current_file_path, td);
+            }
+        } else {
+            // Create a new line below the cursor and scroll down
+            auto td = viewport.create_new_line_at_cursor_and_scroll_down();
+            if (td != EMPTY_TEXT_DIFF) {
+                // lsp_client.make_did_change_request(viewport.buffer->current_file_path, td);
+            }
+        }
+
+        for (int i = 0; i < viewport.buffer->get_indentation_level(viewport.active_buffer_line_under_cursor,
+                                                                   viewport.active_buffer_col_under_cursor);
+             i++) {
+            auto td = viewport.insert_tab_at_cursor();
+            if (td != EMPTY_TEXT_DIFF) {
+                // lsp_client.make_did_change_request(viewport.buffer->current_file_path, td);
+            }
+        }
+
+        modal_editor.current_mode = INSERT;
+        insert_mode_signal.toggle_state();
+        modal_editor.mode_change_signal.toggle_state();
+    }
+}
+
+void undo(ModalEditor &modal_editor, Viewport &viewport) {
+    if (modal_editor.current_mode == MOVE_AND_EDIT) {
+        auto tm = viewport.buffer->undo();
+        if (tm != EMPTY_TEXT_DIFF) {
+            // lsp_client.make_did_change_request(viewport.buffer->current_file_path, tm);
+        }
+    }
+}
+
+void redo(ModalEditor &modal_editor, Viewport &viewport) {
+    if (modal_editor.current_mode == MOVE_AND_EDIT) {
+        auto tm = viewport.buffer->redo();
+        if (tm != EMPTY_TEXT_DIFF) {
+            // lsp_client.make_did_change_request(viewport.buffer->current_file_path, tm);
+        }
+    }
+}
+
+void launch_search_files(ModalEditor &modal_editor) {
+    if (modal_editor.current_mode == MOVE_AND_EDIT) {
+        modal_editor.fs_browser_is_active = true;
+    }
+}
+
+void search_active_buffers(ModalEditor &modal_editor) {
+    if (modal_editor.current_mode == MOVE_AND_EDIT) {
+        modal_editor.afb_is_active = true;
+    }
+}
+
+// this is disabled because I don't want to do lsp just yet
+void go_to_definition_dummy() {
+    // if (modal_editor.current_mode == MOVE_AND_EDIT) {
+    //     auto on_definition_found = [&](JSON lsp_response) {
+    //         // NOTE: that lsp_response needs to be captured by value because it will go out of scope after this
+    //         // function is called
+    //         auto callback = [lsp_response, &viewport, &lsp_client]() {
+    //             go_to_definition(lsp_response, viewport, lsp_client);
+    //         };
+    //         lsp_callbacks_to_run_synchronously.push_back(callback);
+    //     };
+    //
+    //     lsp_client.make_go_to_definition_request(viewport.buffer->current_file_path,
+    //                                              viewport.active_buffer_line_under_cursor,
+    //                                              viewport.active_buffer_col_under_cursor, on_definition_found);
+    //
+    //     auto tr =
+    //         TextRange(viewport.active_buffer_line_under_cursor, 0, viewport.active_buffer_line_under_cursor,
+    //                   viewport.buffer->get_line(viewport.active_buffer_line_under_cursor).length());
+    //
+    //     /*lsp_client.make_get_text_request(viewport.buffer->current_file_path, tr);*/
+    //     }
+}
+
+void switch_to_cpp_source_file(ModalEditor &modal_editor, Viewport &viewport) {
+    if (modal_editor.current_mode == MOVE_AND_EDIT) {
+        std::filesystem::path current_path = viewport.buffer->current_file_path;
+        if (current_path.extension() == ".hpp") {
+            std::filesystem::path cpp_path = current_path;
+            cpp_path.replace_extension(".cpp");
+
+            if (std::filesystem::exists(cpp_path)) {
+                switch_files(viewport, cpp_path.string(), true);
+            }
+        }
+    }
+}
+
+void switch_to_hpp_source_file(ModalEditor &modal_editor, Viewport &viewport) {
+    if (modal_editor.current_mode == MOVE_AND_EDIT) {
+        std::filesystem::path current_path = viewport.buffer->current_file_path;
+        if (current_path.extension() == ".cpp") {
+            std::filesystem::path hpp_path = current_path;
+            hpp_path.replace_extension(".hpp");
+
+            if (std::filesystem::exists(hpp_path)) {
+                switch_files(viewport, hpp_path.string(), true);
+            }
+        }
+    }
+}
+
+// void run_key_logic(InputState &input_state, Viewport &viewport, int &line_where_selection_mode_started,
+//                    int &col_where_selection_mode_started, std::string &command_bar_input,
+//                    TemporalBinarySignal &command_bar_input_signal, Window window,
+//                    std::vector<std::filesystem::path> &searchable_files, FileBrowser &fb,
+//                    std::vector<int> &doids_for_textboxes_for_active_directory_for_later_removal, UI &fs_browser,
+//                    int &selected_file_doid, TemporalBinarySignal &insert_mode_signal, ModalEditor &modal_editor,
+//                    std::vector<std::function<void()>> &lsp_callbacks_to_run_synchronously) {
+
+void run_key_logic(InputKeyState &iks, Viewport &viewport, int &line_where_selection_mode_started,
                    int &col_where_selection_mode_started, std::string &command_bar_input,
-                   TemporalBinarySignal &command_bar_input_signal, Window window,
-                   std::vector<std::filesystem::path> &searchable_files, FileBrowser &fb,
-                   std::vector<int> &doids_for_textboxes_for_active_directory_for_later_removal, UI &fs_browser,
-                   int &selected_file_doid, TemporalBinarySignal &insert_mode_signal, LSPClient &lsp_client,
-                   ModalEditor &modal_editor, std::vector<std::function<void()>> &lsp_callbacks_to_run_synchronously) {
+                   TemporalBinarySignal &command_bar_input_signal, std::vector<std::filesystem::path> &searchable_files,
+                   TemporalBinarySignal &insert_mode_signal, ModalEditor &modal_editor) {
 
     // less keystrokes please:
-    std::function<bool(EKey)> jp = [&](EKey k) { return input_state.is_just_pressed(k); };
-    std::function<bool(EKey)> ip = [&](EKey k) { return input_state.is_pressed(k); };
+    // std::function<bool(EKey)> jp = [&](EKey k) { return input_state.is_just_pressed(k); };
+    // std::function<bool(EKey)> ip = [&](EKey k) { return input_state.is_pressed(k); };
+
+    std::function<bool(InputKey)> jp = [&](InputKey k) { return iks.is_just_pressed(k); };
+    std::function<bool(InputKey)> ip = [&](InputKey k) { return iks.is_pressed(k); };
 
     if (not modal_editor.configured_rcr) {
         modal_editor.rcr.add_regex("^x", [&](const std::smatch &m) {
-            if (modal_editor.current_mode == MOVE_AND_EDIT) {
-                auto td = viewport.delete_character_at_active_position();
-                if (td != EMPTY_TEXT_DIFF) {
-                    lsp_client.make_did_change_request(viewport.buffer->current_file_path, td);
-                }
-            }
-
-            if (modal_editor.current_mode == VISUAL_SELECT) {
-                // TODO: make change request
-                auto tms = viewport.buffer->delete_bounding_box(
-                    line_where_selection_mode_started, col_where_selection_mode_started,
-                    viewport.active_buffer_line_under_cursor, viewport.active_buffer_col_under_cursor);
-
-                for (const auto &tm : tms) {
-                    if (tm != EMPTY_TEXT_DIFF) {
-                        lsp_client.make_did_change_request(viewport.buffer->current_file_path, tm);
-                    }
-                }
-
-                viewport.set_active_buffer_line_col_under_cursor(line_where_selection_mode_started,
-                                                                 col_where_selection_mode_started);
-
-                modal_editor.current_mode = MOVE_AND_EDIT;
-                modal_editor.mode_change_signal.toggle_state();
-            }
+            delete_at_current_cursor_position_logic(modal_editor, viewport, line_where_selection_mode_started,
+                                                    col_where_selection_mode_started);
         });
+
         modal_editor.rcr.add_regex("^m", [&](const std::smatch &m) {
             if (modal_editor.current_mode == MOVE_AND_EDIT || modal_editor.current_mode == VISUAL_SELECT) {
                 viewport.move_cursor_to_middle_of_line();
             }
         });
+
         modal_editor.rcr.add_regex("^\\$", [&](const std::smatch &m) {
             if (modal_editor.current_mode == MOVE_AND_EDIT || modal_editor.current_mode == VISUAL_SELECT) {
                 viewport.move_cursor_to_end_of_line();
             }
         });
-        modal_editor.rcr.add_regex("^[pP]", [&](const std::smatch &m) {
-            if (modal_editor.current_mode == MOVE_AND_EDIT) {
-                if (m.str(0) == "P") {
-                    // Uppercase 'P' - insert content from the clipboard
-                    const char *clipboard_content = glfwGetClipboardString(window.glfw_window);
-                    if (clipboard_content) {
-                        // TODO: make change request
-                        viewport.insert_string_at_cursor(clipboard_content);
-                    }
-                } else if (m.str(0) == "p") {
-                    // Lowercase 'p' - insert the last deleted content
-                    // TODO: make change request
-                    viewport.insert_string_at_cursor(viewport.buffer->get_last_deleted_content());
-                }
-            }
-        });
+
+        modal_editor.rcr.add_regex(
+            "^[pP]", [&](const std::smatch &m) { paste_at_cursor_position_logic(modal_editor, viewport, m); });
+
         modal_editor.rcr.add_regex("^0", [&](const std::smatch &m) {
             if (modal_editor.current_mode == MOVE_AND_EDIT || modal_editor.current_mode == VISUAL_SELECT) {
                 viewport.move_cursor_to_start_of_line();
@@ -507,367 +1062,96 @@ void run_key_logic(InputState &input_state, Viewport &viewport, int &line_where_
         });
 
         modal_editor.rcr.add_regex("^v", [&](const std::smatch &m) {
-            if (modal_editor.current_mode == MOVE_AND_EDIT) {
-                modal_editor.current_mode = VISUAL_SELECT;
-                modal_editor.mode_change_signal.toggle_state();
-                line_where_selection_mode_started = viewport.active_buffer_line_under_cursor;
-                col_where_selection_mode_started = viewport.active_buffer_col_under_cursor;
-            }
+            start_visual_selection(modal_editor, viewport, line_where_selection_mode_started,
+                                   col_where_selection_mode_started);
         });
 
-        modal_editor.rcr.add_regex("^i", [&](const std::smatch &m) {
-            // left control pressed then don't do this because of ctrl-i command
-            if (not ip(EKey::LEFT_CONTROL) and modal_editor.current_mode == MOVE_AND_EDIT) {
-                modal_editor.current_mode = INSERT;
-                insert_mode_signal.toggle_state();
-                modal_editor.mode_change_signal.toggle_state();
-            }
-        });
+        modal_editor.rcr.add_regex(
+            "^i", [&](const std::smatch &m) { enter_insert_mode(modal_editor, viewport, insert_mode_signal, iks); });
+
         modal_editor.rcr.add_regex("^a", [&](const std::smatch &m) {
-            if (modal_editor.current_mode == MOVE_AND_EDIT) {
-                viewport.scroll_right();
-                modal_editor.current_mode = INSERT;
-                insert_mode_signal.toggle_state();
-                modal_editor.mode_change_signal.toggle_state();
-            }
+            enter_insert_mode_after_cursor_position(modal_editor, viewport, insert_mode_signal);
         });
+
         modal_editor.rcr.add_regex("^A", [&](const std::smatch &m) {
-            if (modal_editor.current_mode == MOVE_AND_EDIT) {
-                viewport.move_cursor_to_end_of_line();
-                modal_editor.current_mode = INSERT;
-                insert_mode_signal.toggle_state();
-                modal_editor.mode_change_signal.toggle_state();
-            }
+            enter_insert_mode_at_end_of_line(modal_editor, viewport, insert_mode_signal);
         });
+
         modal_editor.rcr.add_regex("^I", [&](const std::smatch &m) {
-            if (modal_editor.current_mode == MOVE_AND_EDIT) {
-                int ciofnwc = viewport.buffer->find_col_idx_of_first_non_whitespace_character_in_line(
-                    viewport.active_buffer_line_under_cursor);
-                viewport.set_active_buffer_col_under_cursor(ciofnwc);
-                modal_editor.current_mode = INSERT;
-                insert_mode_signal.toggle_state();
-                modal_editor.mode_change_signal.toggle_state();
-            }
+            enter_insert_mode_in_front_of_first_non_whitespace_character_on_active_line(modal_editor, viewport,
+                                                                                        insert_mode_signal);
         });
+
         modal_editor.rcr.add_regex("^\\^", [&](const std::smatch &m) {
-            if (modal_editor.current_mode == MOVE_AND_EDIT) {
-                int ciofnwc = viewport.buffer->find_col_idx_of_first_non_whitespace_character_in_line(
-                    viewport.active_buffer_line_under_cursor);
-                viewport.set_active_buffer_col_under_cursor(ciofnwc);
-            }
+            move_cursor_to_first_non_whitespace_character_on_active_line(modal_editor, viewport);
         });
+
         modal_editor.rcr.add_regex(R"(^(\d*)([jklh]))", [&](const std::smatch &m) {
-            if (modal_editor.current_mode == MOVE_AND_EDIT or modal_editor.current_mode == VISUAL_SELECT) {
-                int count = m[1].str().empty() ? 1 : std::stoi(m[1].str());
-                char direction = m[2].str()[0];
-
-                int line_delta = 0, col_delta = 0;
-                switch (direction) {
-                case 'j':
-                    if (viewport.buffer->line_count() > viewport.active_buffer_line_under_cursor + 1) {
-                        line_delta = count;
-                    }
-                    break; // Scroll down
-                case 'k':
-                    if (viewport.active_buffer_line_under_cursor > 0) {
-                        line_delta = -count;
-                    }
-                    break; // Scroll up
-                case 'h':
-                    if (viewport.active_buffer_col_under_cursor > 0) {
-                        col_delta = -count;
-                    }
-                    break; // Scroll left
-                case 'l':
-                    const std::string &line = viewport.buffer->get_line(viewport.active_buffer_line_under_cursor);
-
-                    // TODO: this is bad because it stops me from being able to scroll rightware
-                    // if I want to on a blank line which is a real use case because sometimes
-                    // I want to be able to scroll right without caring about where I am in the file
-                    // note that this behavior is different than vim and thats ok
-                    /*if (line.size() > viewport.active_buffer_col_under_cursor) {*/
-                    /*    col_delta = count;*/
-                    /*}*/
-
-                    col_delta = count;
-
-                    break; // Scroll right
-                }
-
-                std::cout << "line delta: " << line_delta << ", col delta: " << col_delta << std::endl;
-                viewport.scroll(line_delta, col_delta);
-            }
+            handle_hjkl_with_number_modifier(modal_editor, viewport, m);
         });
-        modal_editor.rcr.add_regex(R"(^(\d*)G)", [&](const std::smatch &m) {
-            std::string digits = m[1].str();
 
-            if (digits.empty()) {
-                int last_line_index = viewport.buffer->line_count() - 1;
-                viewport.set_active_buffer_line_under_cursor(last_line_index);
-            } else {
-                int number = std::stoi(digits);
-                viewport.set_active_buffer_line_under_cursor(number - 1);
-            }
-        });
+        modal_editor.rcr.add_regex(R"(^(\d*)G)",
+                                   [&](const std::smatch &m) { go_to_specific_line_number(viewport, m); });
+
         modal_editor.rcr.add_regex(R"(^([cd]?)([fFtT])(.))", [&](const std::smatch &m) {
-            std::string action = m[1].str(); // 'c' (change) or 'd' (delete), optional
-            std::string motion = m[2].str(); // 'f', 'F', 't', or 'T'
-            char character = m[3].str()[0];  // The character to search for
-
-            int col_idx = -1;
-
-            // Handle motion commands
-            if (motion == "f") {
-                col_idx = viewport.buffer->find_rightward_index(viewport.active_buffer_line_under_cursor,
-                                                                viewport.active_buffer_col_under_cursor, character);
-            } else if (motion == "F") {
-                col_idx = viewport.buffer->find_leftward_index(viewport.active_buffer_line_under_cursor,
-                                                               viewport.active_buffer_col_under_cursor, character);
-            } else if (motion == "t") {
-                col_idx = viewport.buffer->find_rightward_index_before(
-                    viewport.active_buffer_line_under_cursor, viewport.active_buffer_col_under_cursor, character);
-            } else if (motion == "T") {
-                col_idx = viewport.buffer->find_leftward_index_before(
-                    viewport.active_buffer_line_under_cursor, viewport.active_buffer_col_under_cursor, character);
-            }
-
-            // Apply action based on motion result
-            if (col_idx != -1) {
-                if (!action.empty()) {
-                    // If action is 'c' or 'd', handle deletion and mode change
-                    viewport.buffer->delete_bounding_box(viewport.active_buffer_line_under_cursor,
-                                                         viewport.active_buffer_col_under_cursor,
-                                                         viewport.active_buffer_line_under_cursor, col_idx);
-                    if (action == "c") {
-                        modal_editor.current_mode = INSERT;
-                        modal_editor.mode_change_signal.toggle_state();
-                    }
-                } else {
-                    viewport.set_active_buffer_col_under_cursor(col_idx);
-                }
-            } else {
-                std::cout << "Character '" << character << "' not found for motion '" << motion << "'.\n";
-            }
+            change_or_delete_till_or_find_to_character(modal_editor, viewport, m);
         });
+
         // Regex for [cd][webB] (change/delete with word motions)
         modal_editor.rcr.add_regex(R"(^([cd]?)([webB]))", [&](const std::smatch &m) {
-            std::string command = m[1].str();
-            std::string motion = m[2].str();
-
-            // If no command is provided (meaning [cd] is missing), run these default motions
-            if (command.empty()) {
-                if (motion == "w") {
-                    viewport.move_cursor_forward_by_word();
-                } else if (motion == "e") {
-                    viewport.move_cursor_forward_until_end_of_word();
-                } else if (motion == "b") {
-                    viewport.move_cursor_backward_by_word();
-                } else if (motion == "B") {
-                    viewport.move_cursor_backward_until_start_of_word();
-                }
-                return;
-            }
-
-            // otherwise run the deletion stuff
-            int col_idx = -1;
-            if (motion == "w") {
-                // minus one is used here to mimic default vim behavior and not to delet the first character of the next
-                // word
-                col_idx = viewport.buffer->find_forward_by_word_index(viewport.active_buffer_line_under_cursor,
-                                                                      viewport.active_buffer_col_under_cursor) -
-                          1;
-            } else if (motion == "e") {
-                col_idx = viewport.buffer->find_forward_to_end_of_word(viewport.active_buffer_line_under_cursor,
-                                                                       viewport.active_buffer_col_under_cursor);
-            } else if (motion == "b") {
-                col_idx = viewport.buffer->find_backward_to_start_of_word(viewport.active_buffer_line_under_cursor,
-                                                                          viewport.active_buffer_col_under_cursor);
-            } else if (motion == "B") {
-                col_idx = viewport.buffer->find_backward_by_word_index(viewport.active_buffer_line_under_cursor,
-                                                                       viewport.active_buffer_col_under_cursor);
-            }
-
-            // Apply action based on motion result
-            if (col_idx != -1) {
-                viewport.buffer->delete_bounding_box(viewport.active_buffer_line_under_cursor,
-                                                     viewport.active_buffer_col_under_cursor,
-                                                     viewport.active_buffer_line_under_cursor, col_idx);
-                if (command == "c") {
-                    modal_editor.current_mode = INSERT;
-                    insert_mode_signal.toggle_state();
-                    modal_editor.mode_change_signal.toggle_state();
-                }
-            }
+            change_or_delete_using_word_motion(modal_editor, viewport, insert_mode_signal, m);
         });
+
         // modification within brackets
         modal_editor.rcr.add_regex(R"(^([cd])([ai])([bB]))", [&](const std::smatch &m) {
-            std::string command = m[1].str();
-            std::string inside_or_around = m[2].str();
-            std::string bracket_type = m[3].str();
-
-            int left_match_col = -1;
-            int right_match_col = -1;
-
-            if (bracket_type == "b") {
-                left_match_col = viewport.buffer->find_column_index_of_previous_left_bracket(
-                    viewport.active_buffer_line_under_cursor, viewport.active_buffer_col_under_cursor);
-                right_match_col = viewport.buffer->find_column_index_of_next_right_bracket(
-                    viewport.active_buffer_line_under_cursor, viewport.active_buffer_col_under_cursor);
-            }
-
-            if (bracket_type == "B") {
-                left_match_col = viewport.buffer->find_column_index_of_character_leftward(
-                    viewport.active_buffer_line_under_cursor, viewport.active_buffer_col_under_cursor, '{');
-                right_match_col = viewport.buffer->find_column_index_of_next_character(
-                    viewport.active_buffer_line_under_cursor, viewport.active_buffer_col_under_cursor, '}');
-            }
-
-            if (left_match_col == -1 or right_match_col == -1) {
-                return;
-            }
-
-            if (inside_or_around == "i") {
-                left_match_col++;
-                right_match_col--;
-            }
-
-            viewport.buffer->delete_bounding_box(viewport.active_buffer_line_under_cursor, right_match_col,
-                                                 viewport.active_buffer_line_under_cursor, left_match_col);
-            viewport.set_active_buffer_line_col_under_cursor(viewport.active_buffer_line_under_cursor, left_match_col);
+            change_or_delete_inside_or_around_brackets(viewport, m);
         });
 
+        // go to top of file
         modal_editor.rcr.add_regex("^gg", [&](const std::smatch &m) {
             if (modal_editor.current_mode == MOVE_AND_EDIT) {
                 viewport.set_active_buffer_line_under_cursor(0);
             }
         });
+
         modal_editor.rcr.add_regex("^[oO]", [&](const std::smatch &m) {
-            // left control pressed then don't do this because of ctrl-o command
-            if (not ip(EKey::LEFT_CONTROL) and modal_editor.current_mode == MOVE_AND_EDIT) {
-                if (m.str() == "O") {
-                    // Create a new line above the cursor and scroll up
-                    auto td = viewport.create_new_line_above_cursor_and_scroll_up();
-                    if (td != EMPTY_TEXT_DIFF) {
-                        lsp_client.make_did_change_request(viewport.buffer->current_file_path, td);
-                    }
-                } else {
-                    // Create a new line below the cursor and scroll down
-                    auto td = viewport.create_new_line_at_cursor_and_scroll_down();
-                    if (td != EMPTY_TEXT_DIFF) {
-                        lsp_client.make_did_change_request(viewport.buffer->current_file_path, td);
-                    }
-                }
-
-                for (int i = 0; i < viewport.buffer->get_indentation_level(viewport.active_buffer_line_under_cursor,
-                                                                           viewport.active_buffer_col_under_cursor);
-                     i++) {
-                    auto td = viewport.insert_tab_at_cursor();
-                    if (td != EMPTY_TEXT_DIFF) {
-                        lsp_client.make_did_change_request(viewport.buffer->current_file_path, td);
-                    }
-                }
-
-                modal_editor.current_mode = INSERT;
-                insert_mode_signal.toggle_state();
-                modal_editor.mode_change_signal.toggle_state();
-            }
+            open_new_line_below_or_above_current_line(modal_editor, viewport, insert_mode_signal, iks, m);
         });
 
-        modal_editor.rcr.add_regex("^u", [&](const std::smatch &m) {
-            if (modal_editor.current_mode == MOVE_AND_EDIT) {
-                auto tm = viewport.buffer->undo();
-                if (tm != EMPTY_TEXT_DIFF) {
-                    lsp_client.make_did_change_request(viewport.buffer->current_file_path, tm);
-                }
-            }
-        });
-        modal_editor.rcr.add_regex("^r", [&](const std::smatch &m) {
-            if (modal_editor.current_mode == MOVE_AND_EDIT) {
-                auto tm = viewport.buffer->redo();
-                if (tm != EMPTY_TEXT_DIFF) {
-                    lsp_client.make_did_change_request(viewport.buffer->current_file_path, tm);
-                }
-            }
-        });
-        modal_editor.rcr.add_regex("^ sf", [&](const std::smatch &m) {
-            if (modal_editor.current_mode == MOVE_AND_EDIT) {
-                modal_editor.fs_browser_is_active = true;
-            }
-        });
-        modal_editor.rcr.add_regex("^  ", [&](const std::smatch &m) {
-            if (modal_editor.current_mode == MOVE_AND_EDIT) {
-                modal_editor.afb_is_active = true;
-            }
-        });
-        modal_editor.rcr.add_regex("^ gd", [&](const std::smatch &m) {
-            if (modal_editor.current_mode == MOVE_AND_EDIT) {
-                auto on_definition_found = [&](JSON lsp_response) {
-                    // NOTE: that lsp_response needs to be captured by value because it will go out of scope after this
-                    // function is called
-                    auto callback = [lsp_response, &viewport, &lsp_client]() {
-                        go_to_definition(lsp_response, viewport, lsp_client);
-                    };
-                    lsp_callbacks_to_run_synchronously.push_back(callback);
-                };
+        modal_editor.rcr.add_regex("^u", [&](const std::smatch &m) { undo(modal_editor, viewport); });
+        modal_editor.rcr.add_regex("^r", [&](const std::smatch &m) { redo(modal_editor, viewport); });
+        modal_editor.rcr.add_regex("^ sf", [&](const std::smatch &m) { launch_search_files(modal_editor); });
+        modal_editor.rcr.add_regex("^  ", [&](const std::smatch &m) { search_active_buffers(modal_editor); });
+        modal_editor.rcr.add_regex("^ gd", [&](const std::smatch &m) { go_to_definition_dummy(); });
 
-                lsp_client.make_go_to_definition_request(viewport.buffer->current_file_path,
-                                                         viewport.active_buffer_line_under_cursor,
-                                                         viewport.active_buffer_col_under_cursor, on_definition_found);
-
-                auto tr =
-                    TextRange(viewport.active_buffer_line_under_cursor, 0, viewport.active_buffer_line_under_cursor,
-                              viewport.buffer->get_line(viewport.active_buffer_line_under_cursor).length());
-
-                /*lsp_client.make_get_text_request(viewport.buffer->current_file_path, tr);*/
-            }
-        });
         modal_editor.rcr.add_regex("^dd", [&](const std::smatch &m) {
             if (modal_editor.current_mode == MOVE_AND_EDIT) {
                 viewport.delete_line_at_cursor();
             }
         });
+
         modal_editor.rcr.add_regex("^yy", [&](const std::smatch &m) {
             if (modal_editor.current_mode == MOVE_AND_EDIT) {
                 std::string current_line = viewport.buffer->get_line(viewport.active_buffer_line_under_cursor);
-                glfwSetClipboardString(window.glfw_window, current_line.c_str());
+                // NOTE: commented out because trying not to depend on the clipboard thing, instead replace with lambda
+                // functiont o call or something like that glfwSetClipboardString(window.glfw_window,
+                // current_line.c_str());
             }
         });
 
         bool editing_a_cpp_project = true;
         if (editing_a_cpp_project) {
+            modal_editor.rcr.add_regex(
+                "^ cc", [&](const std::smatch &m) { switch_to_cpp_source_file(modal_editor, viewport); });
 
-            modal_editor.rcr.add_regex("^ cc", [&](const std::smatch &m) {
-                if (modal_editor.current_mode == MOVE_AND_EDIT) {
-                    std::filesystem::path current_path = viewport.buffer->current_file_path;
-                    if (current_path.extension() == ".hpp") {
-                        std::filesystem::path cpp_path = current_path;
-                        cpp_path.replace_extension(".cpp");
-
-                        if (std::filesystem::exists(cpp_path)) {
-                            switch_files(viewport, lsp_client, cpp_path.string(), true);
-                        }
-                    }
-                }
-            });
-
-            modal_editor.rcr.add_regex("^ hh", [&](const std::smatch &m) {
-                if (modal_editor.current_mode == MOVE_AND_EDIT) {
-                    std::filesystem::path current_path = viewport.buffer->current_file_path;
-                    if (current_path.extension() == ".cpp") {
-                        std::filesystem::path hpp_path = current_path;
-                        hpp_path.replace_extension(".hpp");
-
-                        if (std::filesystem::exists(hpp_path)) {
-                            switch_files(viewport, lsp_client, hpp_path.string(), true);
-                        }
-                    }
-                }
-            });
+            modal_editor.rcr.add_regex(
+                "^ hh", [&](const std::smatch &m) { switch_to_hpp_source_file(modal_editor, viewport); });
         }
         modal_editor.configured_rcr = true;
     }
 
-    auto keys_just_pressed_this_tick = input_state.get_keys_just_pressed_this_tick();
+    // auto keys_just_pressed_this_tick = input_state.get_keys_just_pressed_this_tick();
+    auto keys_just_pressed_this_tick = iks.get_keys_just_pressed_this_tick();
     if (not modal_editor.fs_browser_is_active) {
         if (modal_editor.current_mode != INSERT) {
 
@@ -885,51 +1169,51 @@ void run_key_logic(InputState &input_state, Viewport &viewport, int &line_where_
                 modal_editor.potential_regex_command = "";
             }
 
-            if (input_state.is_just_pressed(EKey::ESCAPE) or input_state.is_just_pressed(EKey::CAPS_LOCK)) {
+            if (jp(InputKey::ESCAPE) or jp(InputKey::CAPS_LOCK)) {
                 modal_editor.potential_regex_command = "";
             }
 
             bool key_pressed_based_command_run = false;
             if (modal_editor.current_mode == MOVE_AND_EDIT) {
-                if (ip(EKey::LEFT_CONTROL)) {
-                    if (jp(EKey::u)) {
+                if (ip(InputKey::LEFT_CONTROL)) {
+                    if (jp(InputKey::u)) {
                         viewport.scroll(-5, 0);
                         key_pressed_based_command_run = true;
                     }
-                    if (jp(EKey::d)) {
+                    if (jp(InputKey::d)) {
                         viewport.scroll(5, 0);
                         key_pressed_based_command_run = true;
                     }
-                    if (jp(EKey::o)) {
+                    if (jp(InputKey::o)) {
                         viewport.history.go_back();
                         auto [file_path, line, col] = viewport.history.get_current_history_flc();
                         std::cout << "going back to: " << file_path << line << col << std::endl;
                         if (file_path != viewport.buffer->current_file_path) {
-                            switch_files(viewport, lsp_client, file_path, false);
+                            switch_files(viewport, file_path, false);
                         }
                         viewport.set_active_buffer_line_col_under_cursor(line, col, false);
                     }
-                    if (jp(EKey::i)) {
+                    if (jp(InputKey::i)) {
                         viewport.history.go_forward();
                         auto [file_path, line, col] = viewport.history.get_current_history_flc();
                         std::cout << "going forward to: " << file_path << line << col << std::endl;
                         if (file_path != viewport.buffer->current_file_path) {
-                            switch_files(viewport, lsp_client, file_path, false);
+                            switch_files(viewport, file_path, false);
                         }
                         viewport.set_active_buffer_line_col_under_cursor(line, col, false);
                     }
                 }
-                if (ip(EKey::LEFT_SHIFT)) {
+                if (ip(InputKey::LEFT_SHIFT)) {
 
-                    if (jp(EKey::m)) {
+                    if (jp(InputKey::m)) {
                         int last_line_index = (viewport.buffer->line_count() - 1) / 2;
                         viewport.set_active_buffer_line_under_cursor(last_line_index);
                         key_pressed_based_command_run = true;
                     }
                 }
 
-                if (jp(EKey::LEFT_SHIFT)) {
-                    if (jp(EKey::n)) {
+                if (jp(InputKey::LEFT_SHIFT)) {
+                    if (jp(InputKey::n)) {
                         // Check if there are any search results
                         if (!modal_editor.search_results.empty()) {
                             // Move to the previous search result, using forced positive modulo
@@ -945,7 +1229,7 @@ void run_key_logic(InputState &input_state, Viewport &viewport, int &line_where_
                         key_pressed_based_command_run = true;
                     }
                 } else {
-                    if (jp(EKey::n)) {
+                    if (jp(InputKey::n)) {
                         std::cout << "next one" << std::endl;
 
                         if (!modal_editor.search_results.empty()) {
@@ -960,8 +1244,8 @@ void run_key_logic(InputState &input_state, Viewport &viewport, int &line_where_
                         key_pressed_based_command_run = true;
                     }
                 }
-                if (input_state.is_pressed(EKey::LEFT_SHIFT)) {
-                    if (jp(EKey::SEMICOLON)) {
+                if (ip(InputKey::LEFT_SHIFT)) {
+                    if (jp(InputKey::SEMICOLON)) {
                         modal_editor.current_mode = COMMAND;
                         command_bar_input = ":";
                         command_bar_input_signal.toggle_state();
@@ -970,7 +1254,7 @@ void run_key_logic(InputState &input_state, Viewport &viewport, int &line_where_
                         key_pressed_based_command_run = true;
                     }
                 }
-                if (jp(EKey::SLASH)) {
+                if (jp(InputKey::SLASH)) {
                     modal_editor.current_mode = COMMAND;
                     command_bar_input = "/";
                     command_bar_input_signal.toggle_state();
@@ -980,17 +1264,18 @@ void run_key_logic(InputState &input_state, Viewport &viewport, int &line_where_
 
             } else if (modal_editor.current_mode == COMMAND) {
                 // only doing this cause space isn't handled by the char callback
-                if (jp(EKey::ENTER)) {
+                if (jp(InputKey::ENTER)) {
                     if (command_bar_input == ":w") {
                         viewport.buffer->save_file();
                         key_pressed_based_command_run = true;
                     }
                     if (command_bar_input == ":q") {
-                        glfwSetWindowShouldClose(window.glfw_window, true);
+                        // glfwSetWindowShouldClose(window.glfw_window, true);
                         key_pressed_based_command_run = true;
                     }
+
                     if (command_bar_input == ":tfs") {
-                        window.toggle_fullscreen();
+                        // window.toggle_fullscreen();
                         key_pressed_based_command_run = true;
                     }
                     if (command_bar_input.front() == '/') {
@@ -1027,7 +1312,7 @@ void run_key_logic(InputState &input_state, Viewport &viewport, int &line_where_
                 modal_editor.potential_regex_command = "";
             }
         }
-    } else {
+    } else { // otherwise we are in the case that the file browser is active
         if (not keys_just_pressed_this_tick.empty()) {
             for (const auto &key : keys_just_pressed_this_tick) {
                 modal_editor.fs_browser_search_query += key;
@@ -1036,20 +1321,21 @@ void run_key_logic(InputState &input_state, Viewport &viewport, int &line_where_
             if (searchable_files.empty()) {
                 std::cout << "No files found in the search directory." << std::endl;
             } else {
-                update_search_results(modal_editor.fs_browser_search_query, searchable_files, fb,
-                                      doids_for_textboxes_for_active_directory_for_later_removal, fs_browser,
-                                      modal_editor.search_results_changed_signal, selected_file_doid,
-                                      modal_editor.currently_matched_files);
+
+                // update_graphical_search_results(modal_editor.fs_browser_search_query, searchable_files, fb,
+                //                                 doids_for_textboxes_for_active_directory_for_later_removal,
+                //                                 fs_browser, modal_editor.search_results_changed_signal,
+                //                                 selected_file_doid, modal_editor.currently_matched_files);
             }
         }
 
-        if (jp(EKey::ENTER)) {
+        if (jp(InputKey::ENTER)) {
             if (modal_editor.currently_matched_files.size() != 0) {
                 std::cout << "about to load up: " << modal_editor.currently_matched_files[0] << std::endl;
                 std::string file_to_open = modal_editor.currently_matched_files[0];
                 std::cout << "file_to_open: " << file_to_open << std::endl;
 
-                switch_files(viewport, lsp_client, file_to_open, true);
+                switch_files(viewport, file_to_open, true);
 
                 modal_editor.fs_browser_is_active = false;
                 modal_editor.fs_browser_search_query = "";
@@ -1058,7 +1344,7 @@ void run_key_logic(InputState &input_state, Viewport &viewport, int &line_where_
             }
         }
 
-        if (jp(EKey::CAPS_LOCK) or jp(EKey::ESCAPE)) {
+        if (jp(InputKey::CAPS_LOCK) or jp(InputKey::ESCAPE)) {
             std::cout << "tried to turn off fb" << std::endl;
             modal_editor.fs_browser_is_active = false;
             return;
@@ -1069,7 +1355,7 @@ void run_key_logic(InputState &input_state, Viewport &viewport, int &line_where_
         return;
     }
 
-    if (input_state.is_just_pressed(EKey::ESCAPE)) {
+    if (jp(InputKey::ESCAPE)) {
         modal_editor.current_mode = MOVE_AND_EDIT;
         modal_editor.mode_change_signal.toggle_state();
     }
@@ -1077,10 +1363,10 @@ void run_key_logic(InputState &input_state, Viewport &viewport, int &line_where_
     std::function<void()> shared_m_and_e_and_visual_selection_logic = [&]() {};
 
     if (modal_editor.current_mode == INSERT) {
-        if (jp(EKey::ENTER)) {
+        if (jp(InputKey::ENTER)) {
             auto td = viewport.create_new_line_at_cursor_and_scroll_down();
             if (td != EMPTY_TEXT_DIFF) {
-                lsp_client.make_did_change_request(viewport.buffer->current_file_path, td);
+                // lsp_client.make_did_change_request(viewport.buffer->current_file_path, td);
             }
             // TODO: don't use a loop make it so you can pass in the indentation level instead
             for (int i = 0; i < viewport.buffer->get_indentation_level(viewport.active_buffer_line_under_cursor,
@@ -1088,7 +1374,7 @@ void run_key_logic(InputState &input_state, Viewport &viewport, int &line_where_
                  i++) {
                 auto td = viewport.insert_tab_at_cursor();
                 if (td != EMPTY_TEXT_DIFF) {
-                    lsp_client.make_did_change_request(viewport.buffer->current_file_path, td);
+                    // lsp_client.make_did_change_request(viewport.buffer->current_file_path, td);
                 }
             }
         }
@@ -1133,6 +1419,240 @@ bool is_integer(const std::string &str) {
     int temp;
     // try to extract an integer from the stringstream and ensure the whole string was processed
     return (ss >> temp && ss.eof());
+}
+
+InputKeyState create_input_key_state(InputState &input_state) {
+    InputKeyState iks;
+
+    iks.input_key_to_is_pressed[InputKey::a] = input_state.is_pressed(EKey::a);
+    iks.input_key_to_is_pressed[InputKey::b] = input_state.is_pressed(EKey::b);
+    iks.input_key_to_is_pressed[InputKey::c] = input_state.is_pressed(EKey::c);
+    iks.input_key_to_is_pressed[InputKey::d] = input_state.is_pressed(EKey::d);
+    iks.input_key_to_is_pressed[InputKey::e] = input_state.is_pressed(EKey::e);
+    iks.input_key_to_is_pressed[InputKey::f] = input_state.is_pressed(EKey::f);
+    iks.input_key_to_is_pressed[InputKey::g] = input_state.is_pressed(EKey::g);
+    iks.input_key_to_is_pressed[InputKey::h] = input_state.is_pressed(EKey::h);
+    iks.input_key_to_is_pressed[InputKey::i] = input_state.is_pressed(EKey::i);
+    iks.input_key_to_is_pressed[InputKey::j] = input_state.is_pressed(EKey::j);
+    iks.input_key_to_is_pressed[InputKey::k] = input_state.is_pressed(EKey::k);
+    iks.input_key_to_is_pressed[InputKey::l] = input_state.is_pressed(EKey::l);
+    iks.input_key_to_is_pressed[InputKey::m] = input_state.is_pressed(EKey::m);
+    iks.input_key_to_is_pressed[InputKey::n] = input_state.is_pressed(EKey::n);
+    iks.input_key_to_is_pressed[InputKey::o] = input_state.is_pressed(EKey::o);
+    iks.input_key_to_is_pressed[InputKey::p] = input_state.is_pressed(EKey::p);
+    iks.input_key_to_is_pressed[InputKey::q] = input_state.is_pressed(EKey::q);
+    iks.input_key_to_is_pressed[InputKey::r] = input_state.is_pressed(EKey::r);
+    iks.input_key_to_is_pressed[InputKey::s] = input_state.is_pressed(EKey::s);
+    iks.input_key_to_is_pressed[InputKey::t] = input_state.is_pressed(EKey::t);
+    iks.input_key_to_is_pressed[InputKey::u] = input_state.is_pressed(EKey::u);
+    iks.input_key_to_is_pressed[InputKey::v] = input_state.is_pressed(EKey::v);
+    iks.input_key_to_is_pressed[InputKey::w] = input_state.is_pressed(EKey::w);
+    iks.input_key_to_is_pressed[InputKey::x] = input_state.is_pressed(EKey::x);
+    iks.input_key_to_is_pressed[InputKey::y] = input_state.is_pressed(EKey::y);
+    iks.input_key_to_is_pressed[InputKey::z] = input_state.is_pressed(EKey::z);
+
+    iks.input_key_to_is_pressed[InputKey::SPACE] = input_state.is_pressed(EKey::SPACE);
+    iks.input_key_to_is_pressed[InputKey::GRAVE_ACCENT] = input_state.is_pressed(EKey::GRAVE_ACCENT);
+    iks.input_key_to_is_pressed[InputKey::TILDE] = input_state.is_pressed(EKey::TILDE);
+
+    iks.input_key_to_is_pressed[InputKey::ONE] = input_state.is_pressed(EKey::ONE);
+    iks.input_key_to_is_pressed[InputKey::TWO] = input_state.is_pressed(EKey::TWO);
+    iks.input_key_to_is_pressed[InputKey::THREE] = input_state.is_pressed(EKey::THREE);
+    iks.input_key_to_is_pressed[InputKey::FOUR] = input_state.is_pressed(EKey::FOUR);
+    iks.input_key_to_is_pressed[InputKey::FIVE] = input_state.is_pressed(EKey::FIVE);
+    iks.input_key_to_is_pressed[InputKey::SIX] = input_state.is_pressed(EKey::SIX);
+    iks.input_key_to_is_pressed[InputKey::SEVEN] = input_state.is_pressed(EKey::SEVEN);
+    iks.input_key_to_is_pressed[InputKey::EIGHT] = input_state.is_pressed(EKey::EIGHT);
+    iks.input_key_to_is_pressed[InputKey::NINE] = input_state.is_pressed(EKey::NINE);
+    iks.input_key_to_is_pressed[InputKey::ZERO] = input_state.is_pressed(EKey::ZERO);
+    iks.input_key_to_is_pressed[InputKey::MINUS] = input_state.is_pressed(EKey::MINUS);
+    iks.input_key_to_is_pressed[InputKey::EQUAL] = input_state.is_pressed(EKey::EQUAL);
+
+    iks.input_key_to_is_pressed[InputKey::EXCLAMATION_POINT] = input_state.is_pressed(EKey::EXCLAMATION_POINT);
+    iks.input_key_to_is_pressed[InputKey::AT_SIGN] = input_state.is_pressed(EKey::AT_SIGN);
+    iks.input_key_to_is_pressed[InputKey::NUMBER_SIGN] = input_state.is_pressed(EKey::NUMBER_SIGN);
+    iks.input_key_to_is_pressed[InputKey::DOLLAR_SIGN] = input_state.is_pressed(EKey::DOLLAR_SIGN);
+    iks.input_key_to_is_pressed[InputKey::PERCENT_SIGN] = input_state.is_pressed(EKey::PERCENT_SIGN);
+    iks.input_key_to_is_pressed[InputKey::CARET] = input_state.is_pressed(EKey::CARET);
+    iks.input_key_to_is_pressed[InputKey::AMPERSAND] = input_state.is_pressed(EKey::AMPERSAND);
+    iks.input_key_to_is_pressed[InputKey::ASTERISK] = input_state.is_pressed(EKey::ASTERISK);
+    iks.input_key_to_is_pressed[InputKey::LEFT_PARENTHESIS] = input_state.is_pressed(EKey::LEFT_PARENTHESIS);
+    iks.input_key_to_is_pressed[InputKey::RIGHT_PARENTHESIS] = input_state.is_pressed(EKey::RIGHT_PARENTHESIS);
+    iks.input_key_to_is_pressed[InputKey::UNDERSCORE] = input_state.is_pressed(EKey::UNDERSCORE);
+    iks.input_key_to_is_pressed[InputKey::PLUS] = input_state.is_pressed(EKey::PLUS);
+
+    iks.input_key_to_is_pressed[InputKey::LEFT_SQUARE_BRACKET] = input_state.is_pressed(EKey::LEFT_SQUARE_BRACKET);
+    iks.input_key_to_is_pressed[InputKey::RIGHT_SQUARE_BRACKET] = input_state.is_pressed(EKey::RIGHT_SQUARE_BRACKET);
+    iks.input_key_to_is_pressed[InputKey::LEFT_CURLY_BRACKET] = input_state.is_pressed(EKey::LEFT_CURLY_BRACKET);
+    iks.input_key_to_is_pressed[InputKey::RIGHT_CURLY_BRACKET] = input_state.is_pressed(EKey::RIGHT_CURLY_BRACKET);
+
+    iks.input_key_to_is_pressed[InputKey::COMMA] = input_state.is_pressed(EKey::COMMA);
+    iks.input_key_to_is_pressed[InputKey::PERIOD] = input_state.is_pressed(EKey::PERIOD);
+    iks.input_key_to_is_pressed[InputKey::LESS_THAN] = input_state.is_pressed(EKey::LESS_THAN);
+    iks.input_key_to_is_pressed[InputKey::GREATER_THAN] = input_state.is_pressed(EKey::GREATER_THAN);
+
+    iks.input_key_to_is_pressed[InputKey::CAPS_LOCK] = input_state.is_pressed(EKey::CAPS_LOCK);
+    iks.input_key_to_is_pressed[InputKey::ESCAPE] = input_state.is_pressed(EKey::ESCAPE);
+    iks.input_key_to_is_pressed[InputKey::ENTER] = input_state.is_pressed(EKey::ENTER);
+    iks.input_key_to_is_pressed[InputKey::TAB] = input_state.is_pressed(EKey::TAB);
+    iks.input_key_to_is_pressed[InputKey::BACKSPACE] = input_state.is_pressed(EKey::BACKSPACE);
+    iks.input_key_to_is_pressed[InputKey::INSERT] = input_state.is_pressed(EKey::INSERT);
+    iks.input_key_to_is_pressed[InputKey::DELETE] = input_state.is_pressed(EKey::DELETE);
+
+    iks.input_key_to_is_pressed[InputKey::RIGHT] = input_state.is_pressed(EKey::RIGHT);
+    iks.input_key_to_is_pressed[InputKey::LEFT] = input_state.is_pressed(EKey::LEFT);
+    iks.input_key_to_is_pressed[InputKey::UP] = input_state.is_pressed(EKey::UP);
+    iks.input_key_to_is_pressed[InputKey::DOWN] = input_state.is_pressed(EKey::DOWN);
+
+    iks.input_key_to_is_pressed[InputKey::SLASH] = input_state.is_pressed(EKey::SLASH);
+    iks.input_key_to_is_pressed[InputKey::QUESTION_MARK] = input_state.is_pressed(EKey::QUESTION_MARK);
+    iks.input_key_to_is_pressed[InputKey::BACKSLASH] = input_state.is_pressed(EKey::BACKSLASH);
+    iks.input_key_to_is_pressed[InputKey::PIPE] = input_state.is_pressed(EKey::PIPE);
+    iks.input_key_to_is_pressed[InputKey::COLON] = input_state.is_pressed(EKey::COLON);
+    iks.input_key_to_is_pressed[InputKey::SEMICOLON] = input_state.is_pressed(EKey::SEMICOLON);
+    iks.input_key_to_is_pressed[InputKey::SINGLE_QUOTE] = input_state.is_pressed(EKey::SINGLE_QUOTE);
+    iks.input_key_to_is_pressed[InputKey::DOUBLE_QUOTE] = input_state.is_pressed(EKey::DOUBLE_QUOTE);
+
+    iks.input_key_to_is_pressed[InputKey::LEFT_SHIFT] = input_state.is_pressed(EKey::LEFT_SHIFT);
+    iks.input_key_to_is_pressed[InputKey::RIGHT_SHIFT] = input_state.is_pressed(EKey::RIGHT_SHIFT);
+    iks.input_key_to_is_pressed[InputKey::LEFT_CONTROL] = input_state.is_pressed(EKey::LEFT_CONTROL);
+    iks.input_key_to_is_pressed[InputKey::RIGHT_CONTROL] = input_state.is_pressed(EKey::RIGHT_CONTROL);
+    iks.input_key_to_is_pressed[InputKey::LEFT_ALT] = input_state.is_pressed(EKey::LEFT_ALT);
+    iks.input_key_to_is_pressed[InputKey::RIGHT_ALT] = input_state.is_pressed(EKey::RIGHT_ALT);
+    iks.input_key_to_is_pressed[InputKey::LEFT_SUPER] = input_state.is_pressed(EKey::LEFT_SUPER);
+    iks.input_key_to_is_pressed[InputKey::RIGHT_SUPER] = input_state.is_pressed(EKey::RIGHT_SUPER);
+
+    iks.input_key_to_is_pressed[InputKey::FUNCTION_KEY] = input_state.is_pressed(EKey::FUNCTION_KEY);
+    iks.input_key_to_is_pressed[InputKey::MENU_KEY] = input_state.is_pressed(EKey::MENU_KEY);
+
+    iks.input_key_to_is_pressed[InputKey::LEFT_MOUSE_BUTTON] = input_state.is_pressed(EKey::LEFT_MOUSE_BUTTON);
+    iks.input_key_to_is_pressed[InputKey::RIGHT_MOUSE_BUTTON] = input_state.is_pressed(EKey::RIGHT_MOUSE_BUTTON);
+    iks.input_key_to_is_pressed[InputKey::MIDDLE_MOUSE_BUTTON] = input_state.is_pressed(EKey::MIDDLE_MOUSE_BUTTON);
+    iks.input_key_to_is_pressed[InputKey::SCROLL_UP] = input_state.is_pressed(EKey::SCROLL_UP);
+    // NOTE: the following one is causing out of range, instead of bug fixing this, I'm just not going to because we're
+    // probably not going to use scroll for a while and fix the bug later
+    // iks.input_key_to_is_pressed[InputKey::SCROLL_DOWN] = input_state.is_pressed(EKey::SCROLL_DOWN);
+
+    // not required
+    // iks.input_key_to_is_pressed[InputKey::DUMMY] = input_state.is_pressed(EKey::DUMMY);
+
+    iks.input_key_to_just_pressed[InputKey::a] = input_state.is_just_pressed(EKey::a);
+    iks.input_key_to_just_pressed[InputKey::b] = input_state.is_just_pressed(EKey::b);
+    iks.input_key_to_just_pressed[InputKey::c] = input_state.is_just_pressed(EKey::c);
+    iks.input_key_to_just_pressed[InputKey::d] = input_state.is_just_pressed(EKey::d);
+    iks.input_key_to_just_pressed[InputKey::e] = input_state.is_just_pressed(EKey::e);
+    iks.input_key_to_just_pressed[InputKey::f] = input_state.is_just_pressed(EKey::f);
+    iks.input_key_to_just_pressed[InputKey::g] = input_state.is_just_pressed(EKey::g);
+    iks.input_key_to_just_pressed[InputKey::h] = input_state.is_just_pressed(EKey::h);
+    iks.input_key_to_just_pressed[InputKey::i] = input_state.is_just_pressed(EKey::i);
+    iks.input_key_to_just_pressed[InputKey::j] = input_state.is_just_pressed(EKey::j);
+    iks.input_key_to_just_pressed[InputKey::k] = input_state.is_just_pressed(EKey::k);
+    iks.input_key_to_just_pressed[InputKey::l] = input_state.is_just_pressed(EKey::l);
+    iks.input_key_to_just_pressed[InputKey::m] = input_state.is_just_pressed(EKey::m);
+    iks.input_key_to_just_pressed[InputKey::n] = input_state.is_just_pressed(EKey::n);
+    iks.input_key_to_just_pressed[InputKey::o] = input_state.is_just_pressed(EKey::o);
+    iks.input_key_to_just_pressed[InputKey::p] = input_state.is_just_pressed(EKey::p);
+    iks.input_key_to_just_pressed[InputKey::q] = input_state.is_just_pressed(EKey::q);
+    iks.input_key_to_just_pressed[InputKey::r] = input_state.is_just_pressed(EKey::r);
+    iks.input_key_to_just_pressed[InputKey::s] = input_state.is_just_pressed(EKey::s);
+    iks.input_key_to_just_pressed[InputKey::t] = input_state.is_just_pressed(EKey::t);
+    iks.input_key_to_just_pressed[InputKey::u] = input_state.is_just_pressed(EKey::u);
+    iks.input_key_to_just_pressed[InputKey::v] = input_state.is_just_pressed(EKey::v);
+    iks.input_key_to_just_pressed[InputKey::w] = input_state.is_just_pressed(EKey::w);
+    iks.input_key_to_just_pressed[InputKey::x] = input_state.is_just_pressed(EKey::x);
+    iks.input_key_to_just_pressed[InputKey::y] = input_state.is_just_pressed(EKey::y);
+    iks.input_key_to_just_pressed[InputKey::z] = input_state.is_just_pressed(EKey::z);
+
+    iks.input_key_to_just_pressed[InputKey::SPACE] = input_state.is_just_pressed(EKey::SPACE);
+    iks.input_key_to_just_pressed[InputKey::GRAVE_ACCENT] = input_state.is_just_pressed(EKey::GRAVE_ACCENT);
+    iks.input_key_to_just_pressed[InputKey::TILDE] = input_state.is_just_pressed(EKey::TILDE);
+
+    iks.input_key_to_just_pressed[InputKey::ONE] = input_state.is_just_pressed(EKey::ONE);
+    iks.input_key_to_just_pressed[InputKey::TWO] = input_state.is_just_pressed(EKey::TWO);
+    iks.input_key_to_just_pressed[InputKey::THREE] = input_state.is_just_pressed(EKey::THREE);
+    iks.input_key_to_just_pressed[InputKey::FOUR] = input_state.is_just_pressed(EKey::FOUR);
+    iks.input_key_to_just_pressed[InputKey::FIVE] = input_state.is_just_pressed(EKey::FIVE);
+    iks.input_key_to_just_pressed[InputKey::SIX] = input_state.is_just_pressed(EKey::SIX);
+    iks.input_key_to_just_pressed[InputKey::SEVEN] = input_state.is_just_pressed(EKey::SEVEN);
+    iks.input_key_to_just_pressed[InputKey::EIGHT] = input_state.is_just_pressed(EKey::EIGHT);
+    iks.input_key_to_just_pressed[InputKey::NINE] = input_state.is_just_pressed(EKey::NINE);
+    iks.input_key_to_just_pressed[InputKey::ZERO] = input_state.is_just_pressed(EKey::ZERO);
+    iks.input_key_to_just_pressed[InputKey::MINUS] = input_state.is_just_pressed(EKey::MINUS);
+    iks.input_key_to_just_pressed[InputKey::EQUAL] = input_state.is_just_pressed(EKey::EQUAL);
+
+    iks.input_key_to_just_pressed[InputKey::EXCLAMATION_POINT] = input_state.is_just_pressed(EKey::EXCLAMATION_POINT);
+    iks.input_key_to_just_pressed[InputKey::AT_SIGN] = input_state.is_just_pressed(EKey::AT_SIGN);
+    iks.input_key_to_just_pressed[InputKey::NUMBER_SIGN] = input_state.is_just_pressed(EKey::NUMBER_SIGN);
+    iks.input_key_to_just_pressed[InputKey::DOLLAR_SIGN] = input_state.is_just_pressed(EKey::DOLLAR_SIGN);
+    iks.input_key_to_just_pressed[InputKey::PERCENT_SIGN] = input_state.is_just_pressed(EKey::PERCENT_SIGN);
+    iks.input_key_to_just_pressed[InputKey::CARET] = input_state.is_just_pressed(EKey::CARET);
+    iks.input_key_to_just_pressed[InputKey::AMPERSAND] = input_state.is_just_pressed(EKey::AMPERSAND);
+    iks.input_key_to_just_pressed[InputKey::ASTERISK] = input_state.is_just_pressed(EKey::ASTERISK);
+    iks.input_key_to_just_pressed[InputKey::LEFT_PARENTHESIS] = input_state.is_just_pressed(EKey::LEFT_PARENTHESIS);
+    iks.input_key_to_just_pressed[InputKey::RIGHT_PARENTHESIS] = input_state.is_just_pressed(EKey::RIGHT_PARENTHESIS);
+    iks.input_key_to_just_pressed[InputKey::UNDERSCORE] = input_state.is_just_pressed(EKey::UNDERSCORE);
+    iks.input_key_to_just_pressed[InputKey::PLUS] = input_state.is_just_pressed(EKey::PLUS);
+
+    iks.input_key_to_just_pressed[InputKey::LEFT_SQUARE_BRACKET] =
+        input_state.is_just_pressed(EKey::LEFT_SQUARE_BRACKET);
+    iks.input_key_to_just_pressed[InputKey::RIGHT_SQUARE_BRACKET] =
+        input_state.is_just_pressed(EKey::RIGHT_SQUARE_BRACKET);
+    iks.input_key_to_just_pressed[InputKey::LEFT_CURLY_BRACKET] = input_state.is_just_pressed(EKey::LEFT_CURLY_BRACKET);
+    iks.input_key_to_just_pressed[InputKey::RIGHT_CURLY_BRACKET] =
+        input_state.is_just_pressed(EKey::RIGHT_CURLY_BRACKET);
+
+    iks.input_key_to_just_pressed[InputKey::COMMA] = input_state.is_just_pressed(EKey::COMMA);
+    iks.input_key_to_just_pressed[InputKey::PERIOD] = input_state.is_just_pressed(EKey::PERIOD);
+    iks.input_key_to_just_pressed[InputKey::LESS_THAN] = input_state.is_just_pressed(EKey::LESS_THAN);
+    iks.input_key_to_just_pressed[InputKey::GREATER_THAN] = input_state.is_just_pressed(EKey::GREATER_THAN);
+
+    iks.input_key_to_just_pressed[InputKey::CAPS_LOCK] = input_state.is_just_pressed(EKey::CAPS_LOCK);
+    iks.input_key_to_just_pressed[InputKey::ESCAPE] = input_state.is_just_pressed(EKey::ESCAPE);
+    iks.input_key_to_just_pressed[InputKey::ENTER] = input_state.is_just_pressed(EKey::ENTER);
+    iks.input_key_to_just_pressed[InputKey::TAB] = input_state.is_just_pressed(EKey::TAB);
+    iks.input_key_to_just_pressed[InputKey::BACKSPACE] = input_state.is_just_pressed(EKey::BACKSPACE);
+    iks.input_key_to_just_pressed[InputKey::INSERT] = input_state.is_just_pressed(EKey::INSERT);
+    iks.input_key_to_just_pressed[InputKey::DELETE] = input_state.is_just_pressed(EKey::DELETE);
+
+    iks.input_key_to_just_pressed[InputKey::RIGHT] = input_state.is_just_pressed(EKey::RIGHT);
+    iks.input_key_to_just_pressed[InputKey::LEFT] = input_state.is_just_pressed(EKey::LEFT);
+    iks.input_key_to_just_pressed[InputKey::UP] = input_state.is_just_pressed(EKey::UP);
+    iks.input_key_to_just_pressed[InputKey::DOWN] = input_state.is_just_pressed(EKey::DOWN);
+
+    iks.input_key_to_just_pressed[InputKey::SLASH] = input_state.is_just_pressed(EKey::SLASH);
+    iks.input_key_to_just_pressed[InputKey::QUESTION_MARK] = input_state.is_just_pressed(EKey::QUESTION_MARK);
+    iks.input_key_to_just_pressed[InputKey::BACKSLASH] = input_state.is_just_pressed(EKey::BACKSLASH);
+    iks.input_key_to_just_pressed[InputKey::PIPE] = input_state.is_just_pressed(EKey::PIPE);
+    iks.input_key_to_just_pressed[InputKey::COLON] = input_state.is_just_pressed(EKey::COLON);
+    iks.input_key_to_just_pressed[InputKey::SEMICOLON] = input_state.is_just_pressed(EKey::SEMICOLON);
+    iks.input_key_to_just_pressed[InputKey::SINGLE_QUOTE] = input_state.is_just_pressed(EKey::SINGLE_QUOTE);
+    iks.input_key_to_just_pressed[InputKey::DOUBLE_QUOTE] = input_state.is_just_pressed(EKey::DOUBLE_QUOTE);
+
+    iks.input_key_to_just_pressed[InputKey::LEFT_SHIFT] = input_state.is_just_pressed(EKey::LEFT_SHIFT);
+    iks.input_key_to_just_pressed[InputKey::RIGHT_SHIFT] = input_state.is_just_pressed(EKey::RIGHT_SHIFT);
+    iks.input_key_to_just_pressed[InputKey::LEFT_CONTROL] = input_state.is_just_pressed(EKey::LEFT_CONTROL);
+    iks.input_key_to_just_pressed[InputKey::RIGHT_CONTROL] = input_state.is_just_pressed(EKey::RIGHT_CONTROL);
+    iks.input_key_to_just_pressed[InputKey::LEFT_ALT] = input_state.is_just_pressed(EKey::LEFT_ALT);
+    iks.input_key_to_just_pressed[InputKey::RIGHT_ALT] = input_state.is_just_pressed(EKey::RIGHT_ALT);
+    iks.input_key_to_just_pressed[InputKey::LEFT_SUPER] = input_state.is_just_pressed(EKey::LEFT_SUPER);
+    iks.input_key_to_just_pressed[InputKey::RIGHT_SUPER] = input_state.is_just_pressed(EKey::RIGHT_SUPER);
+
+    iks.input_key_to_just_pressed[InputKey::FUNCTION_KEY] = input_state.is_just_pressed(EKey::FUNCTION_KEY);
+    iks.input_key_to_just_pressed[InputKey::MENU_KEY] = input_state.is_just_pressed(EKey::MENU_KEY);
+
+    iks.input_key_to_just_pressed[InputKey::LEFT_MOUSE_BUTTON] = input_state.is_just_pressed(EKey::LEFT_MOUSE_BUTTON);
+    iks.input_key_to_just_pressed[InputKey::RIGHT_MOUSE_BUTTON] = input_state.is_just_pressed(EKey::RIGHT_MOUSE_BUTTON);
+    iks.input_key_to_just_pressed[InputKey::MIDDLE_MOUSE_BUTTON] =
+        input_state.is_just_pressed(EKey::MIDDLE_MOUSE_BUTTON);
+    iks.input_key_to_just_pressed[InputKey::SCROLL_UP] = input_state.is_just_pressed(EKey::SCROLL_UP);
+    // NOTE: the following one is causing out of range, instead of bug fixing this, I'm just not going to because we're
+    // probably not going to use scroll for a while and fix the bug later
+    // iks.input_key_to_is_pressed[InputKey::SCROLL_DOWN] = input_state.is_pressed(EKey::SCROLL_DOWN);
+
+    // not required
+    // iks.input_key_to_is_pressed[InputKey::DUMMY] = input_state.is_pressed(EKey::DUMMY);
+
+    return iks;
 }
 
 int main(int argc, char *argv[]) {
@@ -1369,7 +1889,7 @@ int main(int argc, char *argv[]) {
 
     Viewport viewport(file_buffer, num_lines, num_cols, center_idx_y, center_idx_x);
 
-    switch_files(viewport, lsp_client, filename, true);
+    switch_files(viewport, filename, true);
 
     TemporalBinarySignal insert_mode_signal;
 
@@ -1460,10 +1980,10 @@ int main(int argc, char *argv[]) {
                             ? ""
                             : modal_editor.fs_browser_search_query.substr(
                                   0, modal_editor.fs_browser_search_query.size() - 1);
-                    update_search_results(modal_editor.fs_browser_search_query, searchable_files, fb,
-                                          doids_for_textboxes_for_active_directory_for_later_removal, fs_browser,
-                                          modal_editor.search_results_changed_signal, selected_file_doid,
-                                          modal_editor.currently_matched_files);
+                    update_graphical_search_results(modal_editor.fs_browser_search_query, searchable_files, fb,
+                                                    doids_for_textboxes_for_active_directory_for_later_removal,
+                                                    fs_browser, modal_editor.search_results_changed_signal,
+                                                    selected_file_doid, modal_editor.currently_matched_files);
                 } else {
                     std::cout << "non seach backspace" << std::endl;
                     if (modal_editor.current_mode == INSERT) {
@@ -1563,10 +2083,15 @@ int main(int argc, char *argv[]) {
         // the changes made will be compared against the previous screen state
         viewport.save_previous_viewport_screen();
 
-        run_key_logic(input_state, viewport, line_where_selection_mode_started, col_where_selection_mode_started,
-                      command_bar_input, command_bar_input_signal, window, searchable_files, fb,
-                      doids_for_textboxes_for_active_directory_for_later_removal, fs_browser, selected_file_doid,
-                      insert_mode_signal, lsp_client, modal_editor, lsp_callbacks_to_run_synchronously);
+        // run_key_logic(input_state, viewport, line_where_selection_mode_started, col_where_selection_mode_started,
+        //               command_bar_input, command_bar_input_signal, window, searchable_files, fb,
+        //               doids_for_textboxes_for_active_directory_for_later_removal, fs_browser, selected_file_doid,
+        //               insert_mode_signal, modal_editor, lsp_callbacks_to_run_synchronously);
+
+        InputKeyState iks = create_input_key_state(input_state);
+
+        run_key_logic(iks, viewport, line_where_selection_mode_started, col_where_selection_mode_started,
+                      command_bar_input, command_bar_input_signal, searchable_files, insert_mode_signal, modal_editor);
 
         for (auto &callback : lsp_callbacks_to_run_synchronously) {
             std::cout << "running callback" << std::endl;
