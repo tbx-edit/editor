@@ -1,5 +1,7 @@
 # editor
 
+This is the internal logic of the editor not tied to any specific rendering, this is so that we can build a terminal and gui version of the editor and share the code between the two.
+
 # setup 
 the editor integrates with clangd to support many nice features such as go to definition which makes coding much more enjoyable
 
