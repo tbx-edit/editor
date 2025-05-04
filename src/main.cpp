@@ -1655,6 +1655,31 @@ InputKeyState create_input_key_state(InputState &input_state) {
     return iks;
 }
 
+void insert_character_in_insert_mode(ModalEditor &modal_editor, Viewport &viewport, unsigned int character_code) {
+    if (modal_editor.current_mode == INSERT and not modal_editor.insert_mode_signal.has_just_changed()) {
+
+        // update the thing or else it gets stuck
+        if (modal_editor.insert_mode_signal.next_has_just_changed()) {
+            return;
+        }
+
+        // Convert the character code to a character
+        char character = static_cast<char>(character_code);
+
+        auto td = viewport.insert_character_at_cursor(character);
+
+        // lsp_client.make_did_change_request(viewport.buffer->current_file_path, td);
+
+        /*// Insert the character at the current cursor position*/
+        /*if (!viewport.insert_character_at_cursor(character)) {*/
+        /*    viewport.active_buffer_col_under_cursor viewport.active_buffer_line_under_cursor*/
+        /*            // Handle the case where the insertion failed*/
+        /*            std::cerr*/
+        /*        << "Failed to insert character at cursor position.\n";*/
+        /*}*/
+    }
+}
+
 int main(int argc, char *argv[]) {
 
     // NOTE: because the lsp server runs in another thread asychronously
@@ -1866,10 +1891,6 @@ int main(int argc, char *argv[]) {
     vertex_geometry::Grid status_bar_grid(1, num_cols, status_bar_rect);
     vertex_geometry::Grid command_bar_grid(1, num_cols, command_bar_rect);
 
-    std::string potential_automatic_command;
-    std::string command_bar_input;
-    TemporalBinarySignal command_bar_input_signal;
-
     int center_idx_x = num_cols / 2;
     int center_idx_y = num_lines / 2;
 
@@ -1883,51 +1904,28 @@ int main(int argc, char *argv[]) {
 
     std::string filename = argv[1];
 
+    // initialize the system.
     auto file_buffer = std::make_shared<LineTextBuffer>();
-    LineTextBuffer file_info;
-    LineTextBuffer command_line;
 
     Viewport viewport(file_buffer, num_lines, num_cols, center_idx_y, center_idx_x);
-
     switch_files(viewport, filename, true);
-
-    TemporalBinarySignal insert_mode_signal;
 
     std::function<void(unsigned int)> char_callback = [&](unsigned int character_code) {
         if (modal_editor.fs_browser_is_active) {
         } else {
-            if (modal_editor.current_mode == INSERT) {
-
-                // update the thing or else it gets stuck
-                if (insert_mode_signal.next_has_just_changed()) {
-                    return;
-                }
-
-                // Convert the character code to a character
-                char character = static_cast<char>(character_code);
-
-                auto td = viewport.insert_character_at_cursor(character);
-                lsp_client.make_did_change_request(viewport.buffer->current_file_path, td);
-
-                /*// Insert the character at the current cursor position*/
-                /*if (!viewport.insert_character_at_cursor(character)) {*/
-                /*    viewport.active_buffer_col_under_cursor viewport.active_buffer_line_under_cursor*/
-                /*            // Handle the case where the insertion failed*/
-                /*            std::cerr*/
-                /*        << "Failed to insert character at cursor position.\n";*/
-                /*}*/
-            }
+            insert_character_in_insert_mode(modal_editor, viewport, character_code);
 
             if (modal_editor.current_mode == COMMAND) {
                 // Convert the character code to a character
                 char character = static_cast<char>(character_code);
-                command_bar_input += character;
-                command_bar_input_signal.toggle_state();
+                modal_editor.command_bar_input += character;
+                modal_editor.command_bar_input_signal.toggle_state();
             }
         }
     };
 
     // Define the key callback
+    // TODO: these key callbacks need to be emptied out
     std::function<void(int, int, int, int)> key_callback = [&](int key, int scancode, int action, int mods) {
         // these events happen once when the key is pressed down, aka its non-repeating; a one time event
 
@@ -1939,9 +1937,9 @@ int main(int argc, char *argv[]) {
 
             Key &enum_grabbed_key = *input_state.key_enum_to_object.at(active_key.key_enum);
 
-            if (modal_editor.current_mode == MOVE_AND_EDIT && command_bar_input == ":") {
-                command_bar_input = "";
-                command_bar_input_signal.toggle_state();
+            if (modal_editor.current_mode == MOVE_AND_EDIT && modal_editor.command_bar_input == ":") {
+                modal_editor.command_bar_input = "";
+                modal_editor.command_bar_input_signal.toggle_state();
             }
 
             if (modal_editor.current_mode == MOVE_AND_EDIT) {
@@ -1955,12 +1953,12 @@ int main(int argc, char *argv[]) {
                         std::cout << "key_str:" << key_str << std::endl;
 
                         if (key_str == "u" && viewport.buffer->get_last_deleted_content() == "") {
-                            command_bar_input = "Ain't no more history!";
-                            command_bar_input_signal.toggle_state();
+                            modal_editor.command_bar_input = "Ain't no more history!";
+                            modal_editor.command_bar_input_signal.toggle_state();
                         }
                     }
                     if (active_key.key_enum == EKey::ESCAPE or active_key.key_enum == EKey::CAPS_LOCK) {
-                        potential_automatic_command = "";
+                        modal_editor.potential_automatic_command = "";
                     }
                 }
             }
@@ -2035,10 +2033,10 @@ int main(int argc, char *argv[]) {
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        render(viewport, screen_grid, status_bar_grid, command_bar_grid, command_bar_input, monospaced_font_atlas,
-               batcher, command_bar_input_signal, center_idx_x, center_idx_y, num_cols, num_lines,
-               col_where_selection_mode_started, line_where_selection_mode_started, shader_cache, mode_to_cursor_color,
-               delta_time, one_second_signal_for_status_bar_time_update, modal_editor);
+        render(viewport, screen_grid, status_bar_grid, command_bar_grid, modal_editor.command_bar_input,
+               monospaced_font_atlas, batcher, modal_editor.command_bar_input_signal, center_idx_x, center_idx_y,
+               num_cols, num_lines, col_where_selection_mode_started, line_where_selection_mode_started, shader_cache,
+               mode_to_cursor_color, delta_time, one_second_signal_for_status_bar_time_update, modal_editor);
 
         // render UI stuff
 
@@ -2089,15 +2087,15 @@ int main(int argc, char *argv[]) {
         //               insert_mode_signal, modal_editor, lsp_callbacks_to_run_synchronously);
 
         InputKeyState iks = create_input_key_state(input_state);
-
         run_key_logic(iks, viewport, line_where_selection_mode_started, col_where_selection_mode_started,
-                      command_bar_input, command_bar_input_signal, searchable_files, insert_mode_signal, modal_editor);
+                      modal_editor.command_bar_input, modal_editor.command_bar_input_signal, searchable_files,
+                      modal_editor.insert_mode_signal, modal_editor);
 
-        for (auto &callback : lsp_callbacks_to_run_synchronously) {
-            std::cout << "running callback" << std::endl;
-            callback();
-        }
-        lsp_callbacks_to_run_synchronously.clear();
+        // for (auto &callback : lsp_callbacks_to_run_synchronously) {
+        //     std::cout << "running callback" << std::endl;
+        //     callback();
+        // }
+        // lsp_callbacks_to_run_synchronously.clear();
 
         if (automatic_column_adjustment) {
             snap_to_end_of_line_while_navigating(viewport, saved_for_automatic_column_adjustment,

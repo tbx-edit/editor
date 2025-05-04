@@ -21,6 +21,14 @@ class ModalEditor {
 
     // main stuff end
 
+    std::string potential_automatic_command;
+    std::string command_bar_input;
+    TemporalBinarySignal command_bar_input_signal;
+    TemporalBinarySignal insert_mode_signal;
+
+    int line_where_selection_mode_started = -1;
+    int col_where_selection_mode_started = -1;
+
     // rcr start
     RegexCommandRunner rcr;
     bool configured_rcr = false;
